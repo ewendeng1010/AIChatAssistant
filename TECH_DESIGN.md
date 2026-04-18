@@ -4,7 +4,7 @@
 
 - React + TypeScript + Vite
 - Tailwind CSS
-- 智谱 AI API
+- OpenAI API
 - LocalStorage 存储对话历史
 - react-markdown 渲染 Markdown
 
@@ -15,6 +15,6 @@
 
 ## API 调用
 
-- 使用智谱 AI Chat Completions API
+- 使用 OpenAI Responses API
 - 启用 stream 模式实现流式输出
 - API Key 存储在环境变量中

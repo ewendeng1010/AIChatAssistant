@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { streamChatCompletion } from './api'
+import { defaultApiConfig, streamChatCompletion } from './api'
 
 function createSseResponse(events: string[]) {
   const encoder = new TextEncoder()
@@ -25,6 +25,11 @@ function createSseResponse(events: string[]) {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+})
+
+test('uses OpenAI-compatible defaults when no env overrides are provided', () => {
+  expect(defaultApiConfig.baseUrl).toBe('https://api.openai.com/v1')
+  expect(defaultApiConfig.model).toBe('gpt-4.1-mini')
 })
 
 test('calls the local proxy endpoint and streams output_text deltas', async () => {
@@ -68,7 +73,7 @@ test('calls the local proxy endpoint and streams output_text deltas', async () =
         baseUrl: 'https://ai.love-gwen.top/v1',
         model: 'gpt-4.1',
         stream: true,
-        input: [
+        messages: [
           { role: 'user', content: '你好' },
           { role: 'assistant', content: '你好呀' },
           { role: 'user', content: '继续聊聊' },
@@ -95,4 +100,45 @@ test('surfaces streamed error events from the local proxy endpoint', async () =>
       messages: [{ role: 'user', content: '测试错误' }],
     }),
   ).rejects.toThrow('上游网关拒绝访问')
+})
+
+test('translates local proxy network failures into a friendly error message', async () => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))
+
+  await expect(
+    streamChatCompletion({
+      config: {
+        apiKey: 'sk-test',
+        baseUrl: 'https://gateway.example.com/v1',
+        model: 'gpt-4.1',
+      },
+      messages: [{ role: 'user', content: '测试本地代理错误' }],
+    }),
+  ).rejects.toThrow('无法连接到本地开发服务，请刷新页面或确认开发服务器仍在运行。')
+})
+
+test('parses chat completion delta chunks from OpenAI-compatible SSE streams', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    createSseResponse([
+      'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"你"}}]}\n\n',
+      'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"好"}}]}\n\n',
+      'data: [DONE]\n\n',
+    ]),
+  )
+
+  const onChunk = vi.fn()
+
+  const result = await streamChatCompletion({
+    config: {
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4.1-mini',
+    },
+    messages: [{ role: 'user', content: '你好' }],
+    onChunk,
+  })
+
+  expect(result).toBe('你好')
+  expect(onChunk).toHaveBeenNthCalledWith(1, '你', '你')
+  expect(onChunk).toHaveBeenNthCalledWith(2, '好', '你好')
 })

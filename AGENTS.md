@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-使用 React + TypeScript 开发的 AI 聊天助手，调用智谱 AI API 实现对话功能。
+使用 React + TypeScript 开发的 AI 聊天助手，调用 OpenAI API 实现对话功能。
 
 ## 开发规范
 

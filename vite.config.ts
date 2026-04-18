@@ -1,16 +1,24 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { shouldUseCurlFallback, streamWithCurl } from './curl-fallback'
+import { formatProxyErrorMessage } from './proxy-error'
+import { getProxyDispatcher, getProxyLabel } from './proxy-utils'
+import { buildUpstreamRequest } from './upstream-config'
 
 interface ProxyRequestBody {
   apiKey?: string
   baseUrl?: string
   model?: string
   stream?: boolean
+  messages?: unknown
   input?: unknown
 }
 
 function createResponsesProxyPlugin(): Plugin {
+  const proxyDispatcher = getProxyDispatcher(process.env)
+  const proxyLabel = getProxyLabel(process.env)
+
   return {
     name: 'local-responses-proxy',
     configureServer(server) {
@@ -28,13 +36,19 @@ function createResponsesProxyPlugin(): Plugin {
           return
         }
 
+        let upstreamRequest: ReturnType<typeof buildUpstreamRequest> | undefined
+
         try {
           const body = await readJsonBody<ProxyRequestBody>(req)
           const apiKey = body.apiKey?.trim() ?? ''
           const baseUrl = body.baseUrl?.trim() ?? ''
           const model = body.model?.trim() ?? ''
           const stream = Boolean(body.stream)
-          const input = Array.isArray(body.input) ? body.input : []
+          const messages = Array.isArray(body.messages)
+            ? body.messages
+            : Array.isArray(body.input)
+              ? body.input
+              : []
 
           if (!apiKey || !baseUrl || !model) {
             res.statusCode = 400
@@ -47,21 +61,38 @@ function createResponsesProxyPlugin(): Plugin {
             return
           }
 
-          const upstreamResponse = await fetch(
-            `${baseUrl.replace(/\/+$/, '')}/responses`,
-            {
+          upstreamRequest = buildUpstreamRequest({
+            baseUrl,
+            model,
+            stream,
+            messages,
+          })
+
+          let upstreamResponse: Response
+
+          try {
+            upstreamResponse = await fetch(upstreamRequest.url, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${apiKey}`,
               },
-              body: JSON.stringify({
-                model,
-                stream,
-                input,
-              }),
-            },
-          )
+              dispatcher: proxyDispatcher as unknown as never,
+              body: JSON.stringify(upstreamRequest.body),
+            })
+          } catch (error) {
+            if (shouldUseCurlFallback(error)) {
+              await streamWithCurl({
+                url: upstreamRequest.url,
+                apiKey,
+                body: upstreamRequest.body,
+                res,
+              })
+              return
+            }
+
+            throw error
+          }
 
           res.statusCode = upstreamResponse.status
           res.setHeader(
@@ -90,14 +121,19 @@ function createResponsesProxyPlugin(): Plugin {
 
           res.end()
         } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : '本地代理转发失败，请稍后重试。'
-
           res.statusCode = 502
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify({ message }))
+          res.end(
+            JSON.stringify({
+              message: formatProxyErrorMessage(error, {
+                upstreamUrl:
+                  typeof upstreamRequest !== 'undefined'
+                    ? upstreamRequest.url
+                    : undefined,
+                proxyLabel,
+              }),
+            }),
+          )
         }
       })
     },

@@ -1,18 +1,33 @@
 import type { ApiConfig, ChatRequestMessage, Message } from './types'
 
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
-const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini'
+const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1'
+const DEFAULT_API_MODEL = 'gpt-4.1-mini'
 
 export const defaultApiConfig: ApiConfig = {
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY?.trim() ?? '',
+  apiKey:
+    import.meta.env.VITE_OPENAI_API_KEY?.trim() ??
+    import.meta.env.VITE_AI_API_KEY?.trim() ??
+    '',
   baseUrl:
-    import.meta.env.VITE_OPENAI_BASE_URL?.trim() ?? DEFAULT_OPENAI_BASE_URL,
-  model: import.meta.env.VITE_OPENAI_MODEL?.trim() ?? DEFAULT_OPENAI_MODEL,
+    import.meta.env.VITE_OPENAI_BASE_URL?.trim() ??
+    import.meta.env.VITE_AI_BASE_URL?.trim() ??
+    DEFAULT_API_BASE_URL,
+  model:
+    import.meta.env.VITE_OPENAI_MODEL?.trim() ??
+    import.meta.env.VITE_AI_MODEL?.trim() ??
+    DEFAULT_API_MODEL,
 }
 
-interface ResponsesStreamEvent {
+interface StreamEventChoice {
+  delta?: {
+    content?: string
+  }
+}
+
+interface StreamEvent {
   type?: string
   delta?: string
+  choices?: StreamEventChoice[]
   error?: {
     message?: string
   }
@@ -50,10 +65,10 @@ async function readErrorMessage(response: Response) {
     return (
       data.error?.message ??
       data.message ??
-      `OpenAI API 请求失败，状态码：${response.status}`
+      `AI 接口请求失败，状态码：${response.status}`
     )
   } catch {
-    return `OpenAI API 请求失败，状态码：${response.status}`
+    return `AI 接口请求失败，状态码：${response.status}`
   }
 }
 
@@ -72,20 +87,31 @@ function parseSseEvent(event: string) {
     return '[DONE]' as const
   }
 
-  return JSON.parse(data) as ResponsesStreamEvent
+  return JSON.parse(data) as StreamEvent
 }
 
-function extractTextFromEvent(event: ResponsesStreamEvent) {
+function extractTextFromEvent(event: StreamEvent) {
   switch (event.type) {
     case 'response.output_text.delta':
       return event.delta ?? ''
     default:
-      return ''
+      return event.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? ''
   }
 }
 
-function readStreamError(event: ResponsesStreamEvent) {
+function readStreamError(event: StreamEvent) {
   return event.error?.message ?? event.message ?? ''
+}
+
+function formatLocalProxyFetchError(error: unknown) {
+  if (
+    error instanceof TypeError &&
+    (error.message === 'fetch failed' || error.message === 'Failed to fetch')
+  ) {
+    return '无法连接到本地开发服务，请刷新页面或确认开发服务器仍在运行。'
+  }
+
+  return error instanceof Error ? error.message : '连接本地代理时发生未知错误。'
 }
 
 export async function streamChatCompletion({
@@ -97,30 +123,36 @@ export async function streamChatCompletion({
   const resolvedConfig = normalizeApiConfig(config)
 
   if (!resolvedConfig.apiKey) {
-    throw new Error('缺少 OpenAI API Key，请先配置 API Key。')
+    throw new Error('缺少 API Key，请先配置 API Key。')
   }
 
-  const response = await fetch(LOCAL_PROXY_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      apiKey: resolvedConfig.apiKey,
-      baseUrl: resolvedConfig.baseUrl,
-      model: resolvedConfig.model,
-      stream: true,
-      input: toResponsesInput(messages),
-    }),
-    signal,
-  })
+  let response: Response
+
+  try {
+    response = await fetch(LOCAL_PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apiKey: resolvedConfig.apiKey,
+        baseUrl: resolvedConfig.baseUrl,
+        model: resolvedConfig.model,
+        stream: true,
+        messages: toResponsesInput(messages),
+      }),
+      signal,
+    })
+  } catch (error) {
+    throw new Error(formatLocalProxyFetchError(error))
+  }
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response))
   }
 
   if (!response.body) {
-    throw new Error('OpenAI 没有返回可读取的流式响应，请稍后重试。')
+    throw new Error('AI 服务没有返回可读取的流式响应，请稍后重试。')
   }
 
   const reader = response.body.getReader()
