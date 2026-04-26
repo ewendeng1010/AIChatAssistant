@@ -1,6 +1,6 @@
 # React + TypeScript + Vite
 
-此模板提供了一个最小化配置，用于在 Vite 中启用 React 并支持 HMR 和部分 ESLint 规则。
+此模板提供了一个最小化配置，用于在 Vite 中启用 React 并支持 HMR 和一些 ESLint 规则。
 
 目前，有两个官方插件可用：
 
@@ -13,7 +13,7 @@
 
 ## 扩展 ESLint 配置
 
-如果你正在开发生产级应用，我们建议更新配置以启用类型感知的 lint 规则：
+如果你正在开发生产级应用程序，我们建议更新配置以启用类型感知的 lint 规则：
 
 ```js
 export default defineConfig([
@@ -23,11 +23,11 @@ export default defineConfig([
     extends: [
       // 其他配置...
 
-      // 移除 tseslint.configs.recommended，替换为以下配置
+      // 移除 tseslint.configs.recommended 并替换为如下配置
       tseslint.configs.recommendedTypeChecked,
       // 或者使用此配置以启用更严格的规则
       tseslint.configs.strictTypeChecked,
-      // 可选：添加此配置以启用风格类规则
+      // 可选地，添加此配置以启用风格化规则
       tseslint.configs.stylisticTypeChecked,
 
       // 其他配置...
@@ -43,7 +43,7 @@ export default defineConfig([
 ])
 ```
 
-你还可以安装 [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) 与 [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom)，以使用 React 专属的 lint 规则：
+你还可以安装 [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) 和 [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) 以使用 React 专属的 lint 规则：
 
 ```js
 // eslint.config.js
